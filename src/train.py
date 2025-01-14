@@ -46,7 +46,7 @@ class ProjectAgent:
             'nb_actions': env.action_space.n,
             'learning_rate': 0.001,
             'gamma': 0.98,
-            'buffer_size': 200000,  # Increased buffer size
+            'buffer_size': 100000,
             'epsilon_min': 0.02,
             'epsilon_max': 1.,
             'epsilon_decay_period': 15000,
@@ -62,44 +62,30 @@ class ProjectAgent:
     
 
     def myModel(self, device):
+
         stateDim, actionDim = env.observation_space.shape[0], env.action_space.n
         nbrNeurons = 256
 
-        class DuelingDQN(nn.Module):
-            def __init__(self):
-                super(DuelingDQN, self).__init__()
-                self.feature_layer = nn.Sequential(
-                    nn.Linear(stateDim, nbrNeurons),
-                    nn.ReLU(),
-                    nn.Linear(nbrNeurons, nbrNeurons),
-                    nn.ReLU()
-                )
-                self.value_stream = nn.Sequential(
-                    nn.Linear(nbrNeurons, nbrNeurons),
-                    nn.ReLU(),
-                    nn.Linear(nbrNeurons, 1)
-                )
-                self.advantage_stream = nn.Sequential(
-                    nn.Linear(nbrNeurons, nbrNeurons),
-                    nn.ReLU(),
-                    nn.Linear(nbrNeurons, actionDim)
-                )
+        DQN = torch.nn.Sequential(nn.Linear(stateDim, nbrNeurons),
+                          nn.ReLU(),
+                          nn.Linear(nbrNeurons, nbrNeurons),
+                          nn.ReLU(), 
+                          nn.Linear(nbrNeurons, nbrNeurons),
+                          nn.ReLU(), 
+                          nn.Linear(nbrNeurons, nbrNeurons),
+                          nn.ReLU(), 
+                          nn.Linear(nbrNeurons, actionDim)).to(device)
 
-            def forward(self, x):
-                features = self.feature_layer(x)
-                values = self.value_stream(features)
-                advantages = self.advantage_stream(features)
-                q_values = values + (advantages - advantages.mean(dim=1, keepdim=True))
-                return q_values
-
-        return DuelingDQN().to(device)
+        return DQN
+    
 
 
-    def greedy_action(self, model, state):
+    def greedy_action(network, model, state):
         device = "cuda" if next(model.parameters()).is_cuda else "cpu"
         with torch.no_grad():
             Q = model(torch.Tensor(state).unsqueeze(0).to(device))
             return torch.argmax(Q).item()
+    
 
 
     def gradient_step(self): #same as in Lecture
@@ -112,6 +98,7 @@ class ProjectAgent:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step() 
+
 
 
     def train(self): #Inspiration from lecture
@@ -141,7 +128,6 @@ class ProjectAgent:
         self.criterion = config['criterion'] if 'criterion' in config.keys() else torch.nn.MSELoss()
         lr = config['learning_rate'] if 'learning_rate' in config.keys() else 0.001
         self.optimizer = config['optimizer'] if 'optimizer' in config.keys() else torch.optim.Adam(self.model.parameters(), lr=lr)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1000, gamma=0.9)  # Added scheduler
         self.nb_gradient_steps = config['gradient_steps'] if 'gradient_steps' in config.keys() else 1
 
         ## Target Network
@@ -149,8 +135,10 @@ class ProjectAgent:
         self.update_target_freq = config['update_target_freq'] if 'update_target_freq' in config.keys() else 20
         self.update_target_tau = config['update_target_tau'] if 'update_target_tau' in config.keys() else 0.005
 
+        
         # Get ReplayBuffer
         self.memory = ReplayBuffer(self.buffer_size, self.device)
+
 
         # Training loop
 
@@ -219,8 +207,6 @@ class ProjectAgent:
             else:
                 state = next_state
 
-            self.scheduler.step()  # Step the learning rate scheduler
-
         self.model.load_state_dict(self.best_model.state_dict())
         path = os.getcwd()
         self.save(path)
@@ -245,3 +231,9 @@ class ReplayBuffer:
         return list(map(lambda x:torch.Tensor(np.array(x)).to(self.device), list(zip(*batch))))
     def __len__(self):
         return len(self.data)
+    
+
+    
+if __name__ == "__main__":
+    agent = ProjectAgent()  # Crée une instance de l'agent
+    agent.train()           # Lance l'entraînement
