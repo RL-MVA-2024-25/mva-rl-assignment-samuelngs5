@@ -11,13 +11,7 @@ import random
 
 env = TimeLimit(
     env=HIVPatient(domain_randomization=False), max_episode_steps=200
-)  # The time wrapper limits the number of steps in an episode at 200.
-# Now is the floor is yours to implement the agent and train it.
-
-
-# You have to implement your own agent.
-# Don't modify the methods names and signatures, but you can add methods.
-# ENJOY!
+)  
 class ProjectAgent:
 
     def act(self, observation, use_random=False):
@@ -40,7 +34,7 @@ class ProjectAgent:
         return None
 
 
-    def get_config(self): #Parameters to be fixed, taken from lecture
+    def get_config(self): #Parameters 
 
         config = {
             'nb_actions': env.action_space.n,
@@ -85,16 +79,10 @@ class ProjectAgent:
         with torch.no_grad():
             Q = model(torch.Tensor(state).unsqueeze(0).to(device))
             return torch.argmax(Q).item()
-
-    def thompson_sampling_action(self, state):
-        device = self.device
-        with torch.no_grad():
-            Q = self.model(torch.Tensor(state).unsqueeze(0).to(device))
-            sampled_Q = Q + torch.randn_like(Q) * 0.1  # Add Gaussian noise for Thompson Sampling
-            return torch.argmax(sampled_Q).item()
     
 
-    def gradient_step(self): #same as in Lecture
+
+    def gradient_step(self): 
         if len(self.memory) > self.batch_size:
             X, A, R, Y, D = self.memory.sample(self.batch_size)
             QYmax = self.target_model(Y).max(1)[0].detach()
@@ -107,14 +95,14 @@ class ProjectAgent:
 
 
 
-    def train(self): #Inspiration from lecture
+    def train(self):
 
-        # Get DQN network and target model 
+         
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.myModel(self.device)
         self.target_model = deepcopy(self.model).to(self.device)
         
-        # Get config 
+        
         config = self.get_config()
 
         ## Parameters
@@ -142,7 +130,7 @@ class ProjectAgent:
         self.update_target_tau = config['update_target_tau'] if 'update_target_tau' in config.keys() else 0.005
 
         
-        # Get ReplayBuffer
+        
         self.memory = ReplayBuffer(self.buffer_size, self.device)
 
 
@@ -163,10 +151,11 @@ class ProjectAgent:
             # update epsilon
             if step > self.epsilon_delay:
                 epsilon = max(self.epsilon_min, epsilon-self.epsilon_step)
-
-            # Thompson Sampling for exploration
-            action = self.thompson_sampling_action(state)
-            
+            # select epsilon-greedy action
+            if np.random.rand() < epsilon:
+                action = env.action_space.sample()
+            else:
+                action = self.greedy_action(self.model, state)
             # step
             next_state, reward, done, trunc, _ = env.step(action)
             self.memory.append(state, action, reward, next_state, done)
@@ -185,13 +174,13 @@ class ProjectAgent:
                 for key in model_state_dict:
                     target_state_dict[key] = tau*model_state_dict[key] + (1-tau)*target_state_dict[key]
                 self.target_model.load_state_dict(target_state_dict)
-            # next transition
+            
             step += 1
 
             if done or trunc:
                 episode += 1
 
-                #Check for improvments
+                
                 if episode % test_freq == 0:
                     reward = evaluate_HIV(self, nb_episode=1)
                     if reward > best_reward:
@@ -218,7 +207,7 @@ class ProjectAgent:
 
         return episode_return
 
-# Replay Buffer as in Lecture
+
 
 class ReplayBuffer:
     def __init__(self, capacity, device):
@@ -236,8 +225,7 @@ class ReplayBuffer:
         return list(map(lambda x:torch.Tensor(np.array(x)).to(self.device), list(zip(*batch))))
     def __len__(self):
         return len(self.data)
-     
-
+    
 if __name__ == "__main__":
-    agent = ProjectAgent()  # Crée une instance de l'agent
-    agent.train()           # Lance l'entraînement
+    agent = ProjectAgent()  
+    agent.train()           
