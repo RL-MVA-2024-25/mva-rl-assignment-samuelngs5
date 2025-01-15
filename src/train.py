@@ -85,8 +85,14 @@ class ProjectAgent:
         with torch.no_grad():
             Q = model(torch.Tensor(state).unsqueeze(0).to(device))
             return torch.argmax(Q).item()
-    
 
+    def thompson_sampling_action(self, state):
+        device = self.device
+        with torch.no_grad():
+            Q = self.model(torch.Tensor(state).unsqueeze(0).to(device))
+            sampled_Q = Q + torch.randn_like(Q) * 0.1  # Add Gaussian noise for Thompson Sampling
+            return torch.argmax(sampled_Q).item()
+    
 
     def gradient_step(self): #same as in Lecture
         if len(self.memory) > self.batch_size:
@@ -157,11 +163,10 @@ class ProjectAgent:
             # update epsilon
             if step > self.epsilon_delay:
                 epsilon = max(self.epsilon_min, epsilon-self.epsilon_step)
-            # select epsilon-greedy action
-            if np.random.rand() < epsilon:
-                action = env.action_space.sample()
-            else:
-                action = self.greedy_action(self.model, state)
+
+            # Thompson Sampling for exploration
+            action = self.thompson_sampling_action(state)
+            
             # step
             next_state, reward, done, trunc, _ = env.step(action)
             self.memory.append(state, action, reward, next_state, done)
@@ -231,9 +236,8 @@ class ReplayBuffer:
         return list(map(lambda x:torch.Tensor(np.array(x)).to(self.device), list(zip(*batch))))
     def __len__(self):
         return len(self.data)
-    
+     
 
-    
 if __name__ == "__main__":
     agent = ProjectAgent()  # Crée une instance de l'agent
     agent.train()           # Lance l'entraînement
