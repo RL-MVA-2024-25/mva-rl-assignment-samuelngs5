@@ -8,30 +8,12 @@ from copy import deepcopy
 import os
 import random
 
-class ReplayBuffer:
-    def __init__(self, capacity, device):
-        self.capacity = int(capacity)
-        self.buffer = []
-        self.position = 0
-        self.device = device
 
-    def append(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        return list(map(lambda x: torch.Tensor(np.array(x)).to(self.device), list(zip(*batch))))
-
-    def __len__(self):
-        return len(self.buffer)
+env = TimeLimit(
+    env=HIVPatient(domain_randomization=False), max_episode_steps=200
+)  
 
 class ProjectAgent:
-
-    def __init__(self):
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def act(self, obs, randomize=False):
         dev = torch.device('cpu')
@@ -52,27 +34,6 @@ class ProjectAgent:
         self.model.eval()
         return None
 
-    def build_model(self, device):
-        input_dim, output_dim = env.observation_space.shape[0], env.action_space.n
-        hidden_units = 256
-
-        net = torch.nn.Sequential(
-            nn.Linear(input_dim, hidden_units),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_units, hidden_units),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_units, hidden_units),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_units, hidden_units),
-            nn.ReLU(),
-            nn.Linear(hidden_units, output_dim)
-        ).to(device)
-
-        return net
-
     def get_configuration(self):
         params = {
             'num_actions': env.action_space.n,
@@ -81,17 +42,39 @@ class ProjectAgent:
             'replay_capacity': 100000,
             'min_epsilon': 0.02,
             'max_epsilon': 1.0,
-            'epsilon_decay_steps': 20000,  # Augmented decay period
+            'epsilon_decay_steps': 15000,
             'epsilon_wait': 100,
             'batch_sz': 600,
             'gradient_updates': 2,
             'target_update_method': 'replace',
-            'target_update_interval': 200,  # Reduced interval
+            'target_update_interval': 400,
             'tau': 0.005,
-            'loss_fn': torch.nn.SmoothL1Loss(),
-            'weight_decay': 1e-5  # Added weight decay
-        }
+            'loss_fn': torch.nn.SmoothL1Loss()}
         return params
+
+    def build_model(self, device):
+        input_dim, output_dim = env.observation_space.shape[0], env.action_space.n
+        hidden_units = 256
+
+        net = torch.nn.Sequential(
+            nn.Linear(input_dim, hidden_units),
+            nn.ReLU(),
+            nn.Linear(hidden_units, hidden_units),
+            nn.ReLU(),
+            nn.Linear(hidden_units, hidden_units),
+            nn.ReLU(),
+            nn.Linear(hidden_units, hidden_units),
+            nn.ReLU(),
+            nn.Linear(hidden_units, output_dim)
+        ).to(device)
+
+        return net
+
+    def greedy_action(self, policy_net, state):
+        dev = "cuda" if next(policy_net.parameters()).is_cuda else "cpu"
+        with torch.no_grad():
+            q_vals = policy_net(torch.Tensor(state).unsqueeze(0).to(dev))
+            return torch.argmax(q_vals).item()
 
     def apply_gradient(self):
         if len(self.memory) > self.batch_sz:
@@ -104,13 +87,8 @@ class ProjectAgent:
             loss.backward()
             self.optimizer.step()
 
-    def greedy_action(self, policy_net, state):
-        dev = "cuda" if next(policy_net.parameters()).is_cuda else "cpu"
-        with torch.no_grad():
-            q_vals = policy_net(torch.Tensor(state).unsqueeze(0).to(dev))
-            return torch.argmax(q_vals).item()
-
     def train(self):
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.build_model(self.device)
         self.target_model = deepcopy(self.model).to(self.device)
 
@@ -127,7 +105,7 @@ class ProjectAgent:
         self.epsilon_wait = config['epsilon_wait']
 
         self.loss_fn = config['loss_fn']
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config['lr'], weight_decay=config['weight_decay'])
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=config['lr'])
         self.gradient_updates = config['gradient_updates']
 
         self.target_update_method = config['target_update_method']
@@ -197,9 +175,26 @@ class ProjectAgent:
         return episode_rewards
 
 
-env = TimeLimit(
-    env=HIVPatient(domain_randomization=False), max_episode_steps=200
-)
+class ReplayBuffer:
+    def __init__(self, capacity, device):
+        self.capacity = int(capacity)
+        self.buffer = []
+        self.position = 0
+        self.device = device
+
+    def append(self, state, action, reward, next_state, done):
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(None)
+        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.position = (self.position + 1) % self.capacity
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        return list(map(lambda x: torch.Tensor(np.array(x)).to(self.device), list(zip(*batch))))
+
+    def __len__(self):
+        return len(self.buffer)
+
 
 if __name__ == "__main__":
     agent = ProjectAgent()
